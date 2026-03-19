@@ -1,6 +1,6 @@
 import { initializeApp, getApps } from "firebase/app";
 import { getFirestore, doc, runTransaction, getDoc, updateDoc } from "firebase/firestore";
-// 1. Tambahkan import fungsi Auth dari Firebase
+// Import fungsi Auth dari Firebase
 import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
 
 // --- KONFIGURASI TELEGRAM BOT ---
@@ -17,9 +17,10 @@ const firebaseConfig = {
 };
 
 // --- FIX ERROR VERCEL CACHE (GUNAKAN NAMA APLIKASI KHUSUS) ---
+// Ini akan memaksa Vercel membuang memori senpayment-218ab yang nyangkut
 const app = getApps().find(a => a.name === "PandawaBot") || initializeApp(firebaseConfig, "PandawaBot");
 const db = getFirestore(app);
-// 2. Inisialisasi Auth
+// Inisialisasi Auth
 const auth = getAuth(app);
 
 // Fungsi pembantu untuk membalas loading Telegram agar tidak macet
@@ -38,16 +39,15 @@ async function answerCallback(callbackQueryId, text, showAlert = false) {
 }
 
 export default async function handler(req, res) {
-  // Tolak jika bukan POST
+  // 1. Tolak jika bukan POST
   if (req.method !== 'POST') {
     return res.status(405).send('Method Not Allowed');
   }
 
   try {
-    // 3. LOGIN OTOMATIS SEBAGAI ADMIN UNTUK MENEMBUS RULES FIREBASE
-    // !!! WAJIB UBAH EMAIL DAN PASSWORD DI BAWAH INI SESUAI AKUN ADMIN ANDA !!!
+    // --- LOGIN OTOMATIS SEBAGAI ADMIN UNTUK MENEMBUS RULES FIREBASE ---
     try {
-      await signInWithEmailAndPassword(auth, "EMAIL_ADMIN_ANDA@gmail.com", "PASSWORD_ADMIN_ANDA");
+      await signInWithEmailAndPassword(auth, "doni888855519@gmail.com", "wasalamL050");
     } catch (authError) {
       console.error("Gagal Login Firebase Auth di Vercel:", authError);
       return res.status(500).send('Error: Autentikasi Firebase Gagal');
