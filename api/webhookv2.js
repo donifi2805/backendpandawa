@@ -135,29 +135,62 @@ export default async function handler(req, res) {
           }
 
           const trxData = trxSnap.data();
+          
+          // PENGECEKAN STATUS GANDA
           if (trxData.status !== 'PENDING') {
-            await answerCallback(cb.id, "⚠️ Transaksi ini sudah diproses!", true);
+            await answerCallback(cb.id, "⚠️ Transaksi ini sudah diproses sebelumnya!", true);
+            
+            // Hapus tombol jika ternyata sudah terlanjur diproses otomatis/manual
+            await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/editMessageText`, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ 
+                  chat_id: chatId, 
+                  message_id: messageId, 
+                  text: originalText + `\n\n⚠️ *STATUS: SUDAH DIPROSES (${trxData.status})*`, 
+                  parse_mode: "Markdown",
+                  reply_markup: { inline_keyboard: [] } // Menghapus tombol
+              })
+            });
             return res.status(200).send('OK: Done');
           }
 
           let updatedText = originalText;
 
           if (action === 'A') {
-            const nominal = trxData.harga;
+            // PERBAIKAN: Pastikan dikonversi menjadi Number (Integer) agar Doniguard tidak menganggapnya tidak valid
+            const nominal = Number(trxData.harga || 0);
             const userRef = doc(db, "users", uid);
             const userSnap = await getDoc(userRef);
-            const currentSaldo = userSnap.exists() ? (userSnap.data().saldo || 0) : 0;
+            const currentSaldo = Number(userSnap.exists() ? (userSnap.data().saldo || 0) : 0);
             const newSaldo = currentSaldo + nominal;
 
+            // 1. Update ke Firebase
             await updateDoc(userRef, { saldo: newSaldo });
             await updateDoc(trxRef, { status: "BERHASIL", sn: "Topup Berhasil (Via Bot Telegram)" });
 
+            // 2. PERBAIKAN: Kirim ke Doniguard (Lebih ketat dan di-await sepenuhnya)
             try {
-              await fetch('https://pandawa-digital.com/doniguard.php', {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ uid: uid, action: 'topup', nominal: nominal, trx_id: trxData.trx_id || docId, produk: 'TOPUP MANUAL VALIDASI BOT', saldo_akhir_client: newSaldo })
+              const doniguardPayload = { 
+                  uid: String(uid), 
+                  action: 'topup', 
+                  nominal: nominal, 
+                  trx_id: String(trxData.trx_id || docId), 
+                  produk: 'TOPUP MANUAL VALIDASI BOT', 
+                  saldo_akhir_client: newSaldo 
+              };
+              
+              const dgResponse = await fetch('https://pandawa-digital.com/doniguard.php', {
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(doniguardPayload)
               });
-            } catch(dgError) {}
+              
+              // Tunggu hasil respon agar Cloud Function Vercel tidak memutus koneksi
+              const dgResult = await dgResponse.json();
+              console.log("Doniguard Sync Result:", dgResult);
+            } catch(dgError) {
+              console.error("Gagal sinkronisasi dengan Doniguard:", dgError);
+            }
 
             // TRIGGER NOTIFIKASI TELEGRAM OTOMATIS
             const username = userSnap.exists() ? (userSnap.data().username || userSnap.data().nama || "User") : "User";
@@ -172,20 +205,29 @@ export default async function handler(req, res) {
             await answerCallback(cb.id, "❌ Topup telah ditolak!", false);
           }
 
+          // PERBAIKAN: Menghapus tombol Terima/Tolak pada chat Telegram
           await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/editMessageText`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, message_id: messageId, text: updatedText, parse_mode: "Markdown" })
+            body: JSON.stringify({ 
+                chat_id: chatId, 
+                message_id: messageId, 
+                text: updatedText, 
+                parse_mode: "Markdown",
+                reply_markup: { inline_keyboard: [] } // Ini instruksi krusial untuk menghilangkan tombol
+            })
           });
           return res.status(200).send('OK');
 
         } catch (trxError) {
           await answerCallback(cb.id, "❌ Terjadi kesalahan pada server Firebase.", true);
+          console.error(trxError);
           return res.status(200).send('OK');
         }
       }
     }
     return res.status(200).send('OK');
   } catch (error) {
+    console.error(error);
     return res.status(500).send('Error');
   }
 }
